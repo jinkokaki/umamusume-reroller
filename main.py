@@ -281,6 +281,13 @@ def main():
             tapChar('w')
             sleep(0.5)
             tapChar(' ')
+        #Check if counts are sufficient
+        if cardOneCount + cardTwoCount >= 2:
+            print("Sufficient target cards pulled, stopping script")
+            return
+        else:
+            cardOneCount = 0
+            cardTwoCount = 0
         #Move to title screen
         sleep(0.5)
         tapChar('d')
