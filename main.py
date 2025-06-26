@@ -1,13 +1,17 @@
+#Just rewrite it to be mostly position based bro
+
 import cv2
 import pyautogui
 import pygetwindow as gw
 import numpy as np
 import keyboard
 import sys
+import time
 from time import sleep
 
 windowName = "Umamusume"
 retryTime = 2
+networkTime = 5
 constants = "constants.txt"
 birthInput = 199001
 nameInput = "x"
@@ -38,7 +42,7 @@ cardTwo = "targets/cardTwo.png"
 cardOneCount = 0
 cardTwoCount = 0
 orbTemplate = cv2.ORB_create(250, float(1.2), 8, 1)
-orbScreen = cv2.ORB_create(5000)
+orbScreen = cv2.ORB_create(5000, float(1.2), 8, 50)
 bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
 
 #this is bad programming
@@ -51,7 +55,7 @@ windowRegion = window._rect
 windowX, windowY = windowRegion.left, windowRegion.top
 
 #thank you ChatGPT lmao
-def orbTemplateMatch(screenGray, templateGray, ratio=0.95, minMatchCount=50):
+def orbTemplateMatch(screenGray, templateGray, ratio=0.98, minMatchCount=100):
     templateKeypoints, templateDescriptors = orbTemplate.detectAndCompute(templateGray, None)
     screenKeypoints, screenDescriptors = orbScreen.detectAndCompute(screenGray, None)
     outputTemplateImage = cv2.drawKeypoints(templateGray, templateKeypoints, 0, (0, 0, 255), flags=cv2.DRAW_MATCHES_FLAGS_NOT_DRAW_SINGLE_POINTS)
@@ -86,13 +90,11 @@ def orbTemplateMatch(screenGray, templateGray, ratio=0.95, minMatchCount=50):
             transformedWidth = np.linalg.norm(templateCornersTransformed[0] - templateCornersTransformed[3])
             scaleRatio = transformedWidth / templateWidth
 
-            print(f"Match found. Center: ({centerX}, {centerY})")
             return centerX, centerY, scaleRatio
     else:
-        print("Not enough matches")
         return None, None, None
 
-def waitFindAndClickImage(imagePath, viewButton=False):
+def waitFindAndClickImage(imagePath, viewButton=False, nameField=False):
     template = cv2.imread(imagePath, cv2.IMREAD_GRAYSCALE)
 
     while True:
@@ -104,17 +106,43 @@ def waitFindAndClickImage(imagePath, viewButton=False):
 
         centerX, centerY, scaleRatio = orbTemplateMatch(grayScreenCapture, template)
         if centerX is None:
-            print(f"Image not found. Retrying in {retryTime}s")
+            print(f"Image not found for {imagePath}. Retrying in {retryTime}s")
             sleep(retryTime)
         else:
+            print(f"Match found for {imagePath}. Center: ({centerX}, {centerY})")
             centerX += windowX
             centerY += windowY
+            if nameField:
+                centerX += int(50 * scaleRatio)
             if viewButton:
                 centerX += int(200 * scaleRatio)
             pyautogui.click(centerX, centerY)
             break
 
-def tryFindAndClickImage(imagePath, click=True, nameField=False):
+def findAndSpamImage(imagePath, duration):
+    template = cv2.imread(imagePath, cv2.IMREAD_GRAYSCALE)
+    startTime = time.time()
+
+    while True:
+        window.activate()
+
+        screenCapture = pyautogui.screenshot(region=(windowX, windowY, window.width, window.height))
+        screenCapture = np.array(screenCapture)
+        grayScreenCapture = cv2.cvtColor(screenCapture, cv2.COLOR_RGB2GRAY)
+
+        centerX, centerY, scaleRatio = orbTemplateMatch(grayScreenCapture, template)
+        if centerX is None:
+            print(f"Image not found for {imagePath}. Retrying in 0.1s")
+            sleep(0.1)
+        else:
+            print(f"Match found for {imagePath}. Center: ({centerX}, {centerY})")
+            centerX += windowX
+            centerY += windowY
+            while time.time() - startTime < duration:
+                pyautogui.click(centerX, centerY)
+            break
+
+def tryFindAndClickImage(imagePath, click=True):
     template = cv2.imread(imagePath, cv2.IMREAD_GRAYSCALE)
     window.activate()
     screenCapture = pyautogui.screenshot(region=(windowX, windowY, window.width, window.height))
@@ -128,8 +156,6 @@ def tryFindAndClickImage(imagePath, click=True, nameField=False):
     else:
         centerX += windowX
         centerY += windowY
-        if nameField:
-            centerX += int(50 * scaleRatio)
         if click:
             pyautogui.click(centerX, centerY)
         return True
@@ -158,9 +184,12 @@ def main():
         clickCenter()
         sleep(1)
         clickCenter()
-        sleep(1)
+        sleep(3)
         #Click on terms of use and privacy policy
         waitFindAndClickImage(termsOfUse, True)
+        sleep(1)
+        window.maximize()
+        window.activate()
         waitFindAndClickImage(privacyPolicy, True)
         sleep(1)
         waitFindAndClickImage(agreeButton)
@@ -175,28 +204,30 @@ def main():
         #Click on and enter birth YYYYMM
         waitFindAndClickImage(birthField)
         pyautogui.write(birthInput)
-        sleep(2)
+        sleep(1)
         waitFindAndClickImage(okButton)
-        sleep(5)
+        sleep(networkTime)
         #Skip tutorial for the love of god
         waitFindAndClickImage(skipButton)
         sleep(1)
         #Click on and enter name
-        waitFindAndClickImage(nameField, True, True)
+        waitFindAndClickImage(nameField, False, True)
         pyautogui.write(nameInput)
         waitFindAndClickImage(registerButton)
-        sleep(1)
+        sleep(3)
         waitFindAndClickImage(okButton)
-        sleep(2)
+        sleep(3)
         waitFindAndClickImage(okButton)
+        sleep(networkTime)
         #Skip like the million first rewards
-        while tryFindAndClickImage(closeButton) is False:
-            tryFindAndClickImage(nextButton)
-            sleep(1)
-        sleep(2)
-        tryFindAndClickImage(closeButton)
+        #stuck on here
         sleep(1)
-        #Claim rewards
+        findAndSpamImage(nextButton, 8.5)
+        sleep(2)
+        waitFindAndClickImage(closeButton)
+        sleep(1)
+        waitFindAndClickImage(closeButton)
+        sleep(1)
         waitFindAndClickImage(rewardsIcon)
         sleep(1)
         waitFindAndClickImage(collectAllButton)
@@ -215,7 +246,7 @@ def main():
         loopCount = 0
         while loopCount < 3:
             waitFindAndClickImage(scoutButton)
-            sleep(1)
+            sleep(5)
             waitFindAndClickImage(nextButton)
             sleep(3)
             #Scan for matching cards
