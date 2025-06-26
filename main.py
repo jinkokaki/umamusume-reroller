@@ -2,6 +2,8 @@ import cv2
 import pyautogui
 import pygetwindow as gw
 import numpy as np
+import keyboard
+import sys
 from time import sleep
 
 windowName = "Umamusume"
@@ -35,120 +37,104 @@ cardOne = "targets/cardOne.png"
 cardTwo = "targets/cardTwo.png"
 cardOneCount = 0
 cardTwoCount = 0
+orbTemplate = cv2.ORB_create(250, float(1.2), 8, 1)
+orbScreen = cv2.ORB_create(5000)
+bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=False)
+
+#this is bad programming
+try:
+    window = gw.getWindowsWithTitle(windowName)[0]
+except IndexError:
+    print(f"Umamusume not found running by application window name")
+window.activate()
+windowRegion = window._rect
+windowX, windowY = windowRegion.left, windowRegion.top
 
 #thank you ChatGPT lmao
-def multiScaleTemplateMatch(screenGray, templateGray, scaleRange=(0.5, 1.5), scaleSteps=30, threshold=0.7):
-    bestVal = -1
-    bestLoc = None
-    bestScale = 1.0
-    bestShape = None
+def orbTemplateMatch(screenGray, templateGray, ratio=0.95, minMatchCount=50):
+    templateKeypoints, templateDescriptors = orbTemplate.detectAndCompute(templateGray, None)
+    screenKeypoints, screenDescriptors = orbScreen.detectAndCompute(screenGray, None)
+    outputTemplateImage = cv2.drawKeypoints(templateGray, templateKeypoints, 0, (0, 0, 255), flags=cv2.DRAW_MATCHES_FLAGS_NOT_DRAW_SINGLE_POINTS)
+    outputScreenImage = cv2.drawKeypoints(screenGray, screenKeypoints, 0, (0, 0, 255), flags=cv2.DRAW_MATCHES_FLAGS_NOT_DRAW_SINGLE_POINTS)
+    cv2.imwrite("templateKeypoints.png", outputTemplateImage)
+    cv2.imwrite("screenKeypoints.png", outputScreenImage)
 
-    # Generate scales to test
-    scales = np.linspace(scaleRange[0], scaleRange[1], scaleSteps)
+    matches = bf.knnMatch(templateDescriptors, screenDescriptors, k=2)
+    goodMatches = []
 
-    for scale in scales:
-        scaledTemplate = cv2.resize(templateGray, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+    for m, n in matches:
+        if m.distance < ratio * n.distance:
+            goodMatches.append(m)
 
-        if scaledTemplate.shape[0] > screenGray.shape[0] or scaledTemplate.shape[1] > screenGray.shape[1]:
-            continue  # Skip if template is larger than the screen
+    if len(goodMatches) >= minMatchCount:
+        templateMatchPoints = np.float32([templateKeypoints[m.queryIdx].pt for m in goodMatches]).reshape(-1, 1, 2)
+        screenMatchPoints = np.float32([screenKeypoints[m.trainIdx].pt for m in goodMatches]).reshape(-1, 1, 2)
 
-        result = cv2.matchTemplate(screenGray, scaledTemplate, cv2.TM_CCOEFF_NORMED)
-        minVal, maxVal, minLoc, maxLoc = cv2.minMaxLoc(result)
+        M, mask = cv2.findHomography(templateMatchPoints, screenMatchPoints, cv2.RANSAC, 5.0)
+        if M is None:
+            print("Homography could not be computed")
+            return None, None, None
+        else:
+            h, w = templateGray.shape
+            templateCorners = np.float32([[0, 0], [0, h], [w, h], [w, 0]]).reshape(-1, 1, 2)
+            templateCornersTransformed = cv2.perspectiveTransform(templateCorners, M)
 
-        if maxVal > bestVal:
-            bestVal = maxVal
-            bestLoc = maxLoc
-            bestScale = scale
-            bestShape = scaledTemplate.shape
+            center = templateCornersTransformed.mean(axis=0).flatten()
+            centerX, centerY = int(center[0]), int(center[1])
 
-    if bestVal >= threshold:
-        return bestLoc, bestShape, bestScale
+            templateWidth = np.linalg.norm(templateCorners[0] - templateCorners[3])
+            transformedWidth = np.linalg.norm(templateCornersTransformed[0] - templateCornersTransformed[3])
+            scaleRatio = transformedWidth / templateWidth
+
+            print(f"Match found. Center: ({centerX}, {centerY})")
+            return centerX, centerY, scaleRatio
     else:
+        print("Not enough matches")
         return None, None, None
 
-def grabUmamusumeWindow():
-    try:
-        window = gw.getWindowsWithTitle(windowName)[0]
-    except IndexError:
-        print(f"Umamusume not found running by application window name")
-        return None
+def waitFindAndClickImage(imagePath, viewButton=False):
+    template = cv2.imread(imagePath, cv2.IMREAD_GRAYSCALE)
+
+    while True:
+        window.activate()
+
+        screenCapture = pyautogui.screenshot(region=(windowX, windowY, window.width, window.height))
+        screenCapture = np.array(screenCapture)
+        grayScreenCapture = cv2.cvtColor(screenCapture, cv2.COLOR_RGB2GRAY)
+
+        centerX, centerY, scaleRatio = orbTemplateMatch(grayScreenCapture, template)
+        if centerX is None:
+            print(f"Image not found. Retrying in {retryTime}s")
+            sleep(retryTime)
+        else:
+            centerX += windowX
+            centerY += windowY
+            if viewButton:
+                centerX += int(200 * scaleRatio)
+            pyautogui.click(centerX, centerY)
+            break
+
+def tryFindAndClickImage(imagePath, click=True, nameField=False):
+    template = cv2.imread(imagePath, cv2.IMREAD_GRAYSCALE)
     window.activate()
-    windowRegion = window._rect
-    windowX, windowY = windowRegion.left, windowRegion.top
-    return window, windowX, windowY
-
-def waitFindAndClickImage(imagePath):
-    window, windowX, windowY = grabUmamusumeWindow()
-    template = cv2.imread(imagePath, cv2.IMREAD_GRAYSCALE)
-
-    while True:
-        screenCapture = pyautogui.screenshot(region=(windowX, windowY, window.width, window.height))
-        screenCapture = np.array(screenCapture)
-        grayScreenCapture = cv2.cvtColor(screenCapture, cv2.COLOR_RGB2GRAY)
-
-        matchLoc, matchShape, matchScale = multiScaleTemplateMatch(grayScreenCapture, template)
-        if matchLoc is None:
-            print(f"Image not found. Retrying in {retryTime}s")
-            sleep(retryTime)
-        else:
-            print(f"Image found at {matchLoc} with size {matchShape}, clicking")
-            centerX = matchLoc[0] + matchShape[1] // 2
-            centerY = matchLoc[1] + matchShape[0] // 2
-            centerX += windowX
-            centerY += windowY
-            pyautogui.click(centerX, centerY)
-            break
-
-def waitFindAndClickViewButton(imagePath):
-    window, windowX, windowY = grabUmamusumeWindow()
-    template = cv2.imread(imagePath, cv2.IMREAD_GRAYSCALE)
-
-    while True:
-        screenCapture = pyautogui.screenshot(region=(windowX, windowY, window.width, window.height))
-        screenCapture = np.array(screenCapture)
-        grayScreenCapture = cv2.cvtColor(screenCapture, cv2.COLOR_RGB2GRAY)
-
-        matchLoc, matchShape, matchScale = multiScaleTemplateMatch(grayScreenCapture, template)
-        if matchLoc is None:
-            print(f"Image not found. Retrying in {retryTime}s")
-            sleep(retryTime)
-        else:
-            print(f"Image found at {matchLoc} with size {matchShape}, clicking")
-            centerX = matchLoc[0] + matchShape[1] // 2
-            centerY = matchLoc[1] + matchShape[0] // 2
-            centerX += int(200 * matchScale)
-            centerX += windowX
-            centerY += windowY
-            pyautogui.click(centerX, centerY)
-            centerY += int(100 * matchScale)
-            sleep(1)
-            pyautogui.click(centerX, centerY)
-            break
-
-def tryFindAndClickImage(imagePath, click = True):
-    window, windowX, windowY = grabUmamusumeWindow()
-    template = cv2.imread(imagePath, cv2.IMREAD_GRAYSCALE)
     screenCapture = pyautogui.screenshot(region=(windowX, windowY, window.width, window.height))
     screenCapture = np.array(screenCapture)
     grayScreenCapture = cv2.cvtColor(screenCapture, cv2.COLOR_RGB2GRAY)
 
-    matchLoc, matchShape, matchScale = multiScaleTemplateMatch(grayScreenCapture, template)
-    if matchLoc is None:
-        print(f"Image not found, returning false")
+    centerX, centerY, scaleRatio = orbTemplateMatch(grayScreenCapture, template)
+    if centerX is None:
+        print(f"Image not found. Returning false")
         return False
     else:
-        print(f"Image found at {matchLoc} with size {matchShape}, returning true")
-        centerX = matchLoc[0] + matchShape[1] // 2
-        centerY = matchLoc[1] + matchShape[0] // 2
         centerX += windowX
         centerY += windowY
+        if nameField:
+            centerX += int(50 * scaleRatio)
         if click:
             pyautogui.click(centerX, centerY)
         return True
 
-
 def clickCenter():
-    window, windowX, windowY = grabUmamusumeWindow()
     centerX = windowX + window.width // 2
     centerY = windowY + window.height // 2
     pyautogui.click(centerX, centerY)
@@ -164,7 +150,8 @@ def main():
         print(f"{e}")
         print("Ensure that the first line is the birth year and month in the convention YYYYMM, and that the second line is the name")
     
-    while True:
+    print("Hold spacebar to kill the script")
+    while not keyboard.is_pressed('space'):
         # Click twice to get out of the opening credits and click again to start the game
         clickCenter()
         sleep(1)
@@ -173,25 +160,32 @@ def main():
         clickCenter()
         sleep(1)
         #Click on terms of use and privacy policy
-        #waitFindAndClickImage(termsOfUse, True)
-        #sleep(3)
-        #waitFindAndClickImage(privacyPolicy, True)
-        waitFindAndClickViewButton(termsOfUse)
+        waitFindAndClickImage(termsOfUse, True)
+        waitFindAndClickImage(privacyPolicy, True)
+        sleep(1)
         waitFindAndClickImage(agreeButton)
         sleep(2)
         #Click on and select default region
         waitFindAndClickImage(changeButton)
+        sleep(1)
         waitFindAndClickImage(okButton)
+        sleep(1)
+        waitFindAndClickImage(okButton)
+        sleep(1)
         #Click on and enter birth YYYYMM
         waitFindAndClickImage(birthField)
         pyautogui.write(birthInput)
+        sleep(2)
         waitFindAndClickImage(okButton)
+        sleep(5)
         #Skip tutorial for the love of god
         waitFindAndClickImage(skipButton)
+        sleep(1)
         #Click on and enter name
-        waitFindAndClickImage(nameField)
+        waitFindAndClickImage(nameField, True, True)
         pyautogui.write(nameInput)
         waitFindAndClickImage(registerButton)
+        sleep(1)
         waitFindAndClickImage(okButton)
         sleep(2)
         waitFindAndClickImage(okButton)
@@ -201,6 +195,7 @@ def main():
             sleep(1)
         sleep(2)
         tryFindAndClickImage(closeButton)
+        sleep(1)
         #Claim rewards
         waitFindAndClickImage(rewardsIcon)
         sleep(1)
@@ -211,13 +206,16 @@ def main():
         waitFindAndClickImage(closeButton)
         #Move to banner
         waitFindAndClickImage(scoutIcon)
+        sleep(2)
         waitFindAndClickImage(cardBanner)
+        sleep(2)
         #Pull baby pull
         waitFindAndClickImage(tenScoutButton)
         #Loop
         loopCount = 0
         while loopCount < 3:
             waitFindAndClickImage(scoutButton)
+            sleep(1)
             waitFindAndClickImage(nextButton)
             sleep(3)
             #Scan for matching cards
@@ -226,9 +224,11 @@ def main():
             if tryFindAndClickImage(cardTwo, False):
                 cardTwoCount += 1
             waitFindAndClickImage(scoutAgainButton)
+            sleep(1)
             loopCount += 1
         #Finish the last (4th) pull
         waitFindAndClickImage(nextButton)
+        sleep(1)
         if tryFindAndClickImage(cardOne, False):
             cardOneCount += 1
         if tryFindAndClickImage(cardTwo, False):
@@ -246,12 +246,16 @@ def main():
         sleep(1)
         clickCenter()
         waitFindAndClickImage(menuButton)
+        sleep(1)
         waitFindAndClickImage(deleteBox)
+        sleep(1)
         waitFindAndClickImage(deleteButton)
         sleep(1)
         waitFindAndClickImage(deleteButton)
+        sleep(1)
         waitFindAndClickImage(closeButton)
         #Restart the main function
+    sys.exit()
 
 if __name__ == "__main__":
     main()
