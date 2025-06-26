@@ -10,6 +10,10 @@ constants = "constants.txt"
 birthInput = 199001
 nameInput = "x"
 cardRegion = (296, 112, 800, 900)
+cardOne = "targets/cardOne.png"
+cardTwo = "targets/cardTwo.png"
+cardOneCount = 0
+cardTwoCount = 0
 
 def grabUmamusumeWindow():
     umamusumeWindow = None
@@ -251,16 +255,61 @@ def main():
         tapChar('w')
         sleep(0.5)
         tapChar(' ')
-        #Skip
-        sleep(3)
+        #Pull loop
+        pullCount = 1
+        while pullCount <= 4:
+            sleep(3)
+            tapChar('s')
+            sleep(0.5)
+            timeMarker = time.time()
+            while (time.time() - timeMarker > 5):
+                sleep(0.05)
+                tapChar(' ')
+            #Computer vision time
+            if multiScaleTemplateMatch(cardOne):
+                cardOneCount += 1
+                print("Card One detected")
+            if multiScaleTemplateMatch(cardTwo):
+                cardTwoCount += 1
+                print("Card Two detected")
+            sleep(0.5)
+            pullCount += 1
+            tapChar('a')
+            sleep(0.5)
+            tapChar(' ')
+            sleep(0.5)
+            tapChar('w')
+            sleep(0.5)
+            tapChar(' ')
+        #Move to title screen
+        sleep(0.5)
+        tapChar('d')
+        sleep(0.5)
+        tapChar('d')
+        #Skip opening scenes
+        sleep(2)
+        pyautogui.click(1920 // 2, 1080 // 2)
+        sleep(2)
+        tapChar(' ')
+        #Move to menu
+        sleep(0.5)
+        tapChar('d')
+        sleep(0.5)
+        tapChar('w')
+        sleep(0.5)
+        tapChar(' ')
+        #Delete data
+        sleep(0.5)
+        tapChar('d')
+        sleep(0.5)
+        tapChar(' ')
+        sleep(0.5)
+        tapChar(' ')
+        sleep(0.5)
         tapChar('s')
         sleep(0.5)
-        timeMarker = time.time()
-        while (time.time() - timeMarker > 3):
-            sleep(0.05)
-            tapChar(' ')
-        #Computer vision
-        return
+        tapChar(' ')
+        #Return to beginning of loop
 
 
 if __name__ == "__main__":
