@@ -10,7 +10,7 @@ pip install .
 python main_monitor.py
 ```
 
-# Attempts to run the game. If it's alreadt open it skips the step, feel free to change the path or just open it yourself before running. To work properly it should be at the main menu with no user data set (trainer ID: 0 if clicking it on the top left of the login screen)
+## Attempts to run the game. If it's alreadt open it skips the step, feel free to change the path or just open it yourself before running. To work properly it should be at the main menu with no user data set (trainer ID: 0 if clicking it on the top left of the login screen)
 
 delete user data step not working, I don't think the image recognition is working well. manually check and delete. hopefully the main repo will pick up the changes.
 
