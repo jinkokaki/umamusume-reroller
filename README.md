@@ -6,6 +6,12 @@ NOT DONE, STILL SUCKS
 pip install .
 ```
 
+```
+python main_monitor.py
+```
+
+delete user data step not working, I don't think the image recognition is working well. manually check and delete. hopefully the main repo will pick up the changes.
+
 computer vision still not tested
 
 Python script to automatically reroll on the Steam client with the 40 free rolls given initially, targeting two cards (Super Creek and Fine Motion)
